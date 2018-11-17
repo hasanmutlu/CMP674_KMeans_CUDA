@@ -182,20 +182,19 @@ vector<Centroid> Kmeans(const vector<Point> &points, int k)
 	CalculateCentroids(centroids, points);
 	return centroids;
 }
-void PrintToFile(const char *file, const vector<Point> data, const vector<Centroid> &centroids )
+void PrintToFile(const char *file, const vector<Centroid> &centroids )
 {
     fstream output(file, fstream::out);
-    uint data_size = data.size();
-    output<<data_size<<endl;
-    for (uint i= 0; i<data_size ; i++)
-    {
-        const Point &p = data[i];
-        output<<p.ToString()<<endl;
-    }
     uint c_size = centroids.size();
     for (int i=0; i<c_size; i++){
         const Centroid &centroid = centroids[i];
-        output << centroid.position.ToString()<< endl;
+        uint point_size = centroid.points.size();
+        output << centroid.position.ToString()<<","<< point_size<< endl;
+        for (uint j= 0; j< point_size ; j++)
+        {
+            const Point &p = centroid.points[j];            
+            output<<p.ToString()<<endl;
+        }
     }
     output.close();
 }
@@ -212,7 +211,7 @@ int main(int argc, char *args[])
     }
 	auto data = GenerateRandomPoints(data_count);
 	auto result = Kmeans(data, cluster_count);
-    PrintToFile("output.txt",data, result);
+    PrintToFile("output.txt",result);
 	for (uint i=0;i<result.size();i++)
 	{
 		result[i].Print();
