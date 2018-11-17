@@ -4,6 +4,7 @@
 #include <vector>
 #include <cstdlib>
 #include <time.h>
+#include <fstream>
 #define uint unsigned int
 #define RANGE 100
 
@@ -29,10 +30,11 @@ public:
 		this->y = y;
 	}
 	Point():Point(0, 0){}
-	string ToString()
+	string ToString() const
 	{
 		stringstream ss;// = new stringstream();
-		ss << "[" << x << "," << y << "]" << endl;
+        //ss << "[" << x << "," << y << "]" << endl;
+        ss <<  x << "," << y;
 		return ss.str();
 	}
 	double GetDistance(Point point)
@@ -180,12 +182,37 @@ vector<Centroid> Kmeans(const vector<Point> &points, int k)
 	CalculateCentroids(centroids, points);
 	return centroids;
 }
+void PrintToFile(const char *file, const vector<Point> data, const vector<Centroid> &centroids )
+{
+    fstream output(file, fstream::out);
+    uint data_size = data.size();
+    output<<data_size<<endl;
+    for (uint i= 0; i<data_size ; i++)
+    {
+        const Point &p = data[i];
+        output<<p.ToString()<<endl;
+    }
+    uint c_size = centroids.size();
+    for (int i=0; i<c_size; i++){
+        const Centroid &centroid = centroids[i];
+        output << centroid.position.ToString()<< endl;
+    }
+    output.close();
+}
 
 int main(int argc, char *args[])
 {
 	srand(time(NULL));
-	auto data = GenerateRandomPoints(10);
-	auto result = Kmeans(data, 3);
+    uint data_count = 10;
+    uint cluster_count = 3;
+    if (argc > 2)
+    {
+        data_count = atoi(args[1]);
+        cluster_count = atoi(args[2]);
+    }
+	auto data = GenerateRandomPoints(data_count);
+	auto result = Kmeans(data, cluster_count);
+    PrintToFile("output.txt",data, result);
 	for (uint i=0;i<result.size();i++)
 	{
 		result[i].Print();
