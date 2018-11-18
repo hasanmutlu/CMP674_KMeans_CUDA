@@ -3,17 +3,19 @@
 #include <math.h>
 #include <vector>
 #include <cstdlib>
-#include <time.h>
 #include <fstream>
 #include <thread>
 #include <mutex>
+#include <chrono>
 
 #define uint unsigned int
 #define RANGE 100
 
 using namespace std;
+using namespace chrono;
 
-mutex mutex_obj1,mutex_obj2;
+mutex mutex_obj;
+uint thread_count = 4;
 class Point
 {
 public:
@@ -133,17 +135,16 @@ void UpdateCentroid(Centroid &centroid)
 	centroid.UpdateCenter();
 }
 
-void UpdateCentroids(vector<Centroid> &centroids)
+void UpdateCentroids(vector<Centroid> &centroids,int index)
 {
-	vector<thread> thread_list;
-	for (uint i = 0; i < centroids.size(); i++)
+	if (index >= centroids.size())
 	{
-		thread_list.push_back(thread(UpdateCentroid,ref(centroids[i])));
+		return;
 	}
-	for (uint i = 0; i < centroids.size(); i++)
-	{
-		thread_list[i].join();
-	}
+	thread t(UpdateCentroid, ref(centroids[index]));
+	index++;
+	t.join();
+	UpdateCentroids(centroids,index);
 }
 bool IsCentroidsUpdated(const vector<Centroid> &previous, const vector<Centroid> &current)
 {
@@ -159,19 +160,53 @@ bool IsCentroidsUpdated(const vector<Centroid> &previous, const vector<Centroid>
 	return false;
 }
 
-void FindClosestCentroid(const Point &p, vector<Centroid> &centroids)
+void FindClosestCentroid(const vector<Point> &points, vector<Centroid> &centroids,int start,const int end)
 {
-	int minCentroidIndex = 0;
-	for (uint j = 0; j<centroids.size(); j++)
-	{
-		double cur_distance = centroids[j].GetDistance(p);
-		double min_distance = centroids[minCentroidIndex].GetDistance(p);
-		if (cur_distance <= min_distance)
+	for(int i= start;i<end;i++){
+		const Point &p = points[i];
+		int minCentroidIndex = 0;
+		for (uint j = 0; j<centroids.size(); j++)
 		{
-			minCentroidIndex = j;
+			double cur_distance = centroids[j].GetDistance(p);
+			double min_distance = centroids[minCentroidIndex].GetDistance(p);
+			if (cur_distance <= min_distance)
+			{
+				minCentroidIndex = j;
+			}
+		}
+		mutex_obj.lock();
+		centroids[minCentroidIndex].points.push_back(p);
+		mutex_obj.unlock();
+	}
+
+}
+void FindClosestCentroids(const vector<Point> &points, vector<Centroid> &centroids)
+{
+    uint size = points.size();
+    int start = 0;
+    int stepsize = size / thread_count;
+    int end = 0;
+	vector<thread> thread_list;
+    for (int i=1; i<=thread_count; i++)
+    {
+        if (i==thread_count)
+        {
+            end = size;
+        }
+        else
+        {
+            end = start + stepsize;
+        }
+		thread_list.push_back(thread(FindClosestCentroid,ref(points),ref(centroids),start,end));
+        start = start + stepsize;
+    }
+	for (int i=0;i<thread_list.size();i++)
+	{
+		if (thread_list[i].joinable()==true)
+		{
+			thread_list[i].join();
 		}
 	}
-	centroids[minCentroidIndex].points.push_back(p);
 }
 
 
@@ -179,19 +214,8 @@ void FindClosestCentroid(const Point &p, vector<Centroid> &centroids)
 void CalculateCentroids(vector<Centroid> &centroids, const vector<Point> &points)
 {
 	vector<Centroid> previousCentroids = centroids;
-	//vector<thread> thread_list;		
-	uint point_size = points.size();
-	for (uint i = 0; i< point_size; i++)
-	{
-		const Point &p = points[i];
-		FindClosestCentroid(p,centroids);
-		//thread_list.push_back(thread(FindClosestCentroid,ref(p),ref(centroids)));
-	 }
-	// for (uint i = 0; i< point_size; i++)
-	// {
-	// 	thread_list[i].join();
-	// }
-	UpdateCentroids(centroids);
+	FindClosestCentroids(points,centroids);
+	UpdateCentroids(centroids, 0);
 	bool isUpdated = IsCentroidsUpdated(previousCentroids, centroids);
 	if (isUpdated == true)
 	{
@@ -234,21 +258,29 @@ int main(int argc, char *args[])
 	srand(time(NULL));
     uint data_count = 10;
     uint cluster_count = 3;
-    if (argc > 2)
+	if (argc < 4)
+	{
+		cout <<"missing parameters!"<<endl;
+		cout <<"Run Program : ./program thread_count data_count cluster_count"<<endl;
+		return -1;
+	}
+    else
     {
-        data_count = atoi(args[1]);
-        cluster_count = atoi(args[2]);
+		thread_count = atoi(args[1]);
+        data_count = atoi(args[2]);
+        cluster_count = atoi(args[3]);
     }
 	auto data = GenerateRandomPoints(data_count);
-	clock_t start = clock();
+	auto start = system_clock::now();
 	auto result = Kmeans(data, cluster_count);
-	clock_t end = clock();
-	double elapsed = (end - start)/1000.0;
-    //PrintToFile("output_parallel.txt",result);
+	auto end = system_clock::now();
+	auto elapsed_seconds = duration_cast<milliseconds>(end-start).count();
+	cout<<"Parallel Elapsed Time:"<<elapsed_seconds<<"ms"<<endl;
+	PrintToFile("output_parallel.txt",result);
+	return -1;
+
 	// for (uint i=0;i<result.size();i++)
 	// {
 	// 	result[i].Print();
 	// }
-	cout<<"Parallel Elapsed Time:"<<elapsed<<"ms"<<endl;
-	return -1;
 }

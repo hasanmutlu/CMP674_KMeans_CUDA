@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 
 
 
-file = open("output.txt","r")
+file = open("output_parallel.txt","r")
 lines = file.readlines()
 #data_count = int(lines[0])
 #centroid_count = len(lines) - data_count - 1

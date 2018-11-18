@@ -3,14 +3,14 @@
 #include <math.h>
 #include <vector>
 #include <cstdlib>
-#include <time.h>
 #include <fstream>
-#include <pthread.h>
+#include <chrono>
 
 #define uint unsigned int
 #define RANGE 100
 
 using namespace std;
+using namespace chrono;
 class Point
 {
 public:
@@ -212,15 +212,17 @@ int main(int argc, char *args[])
         cluster_count = atoi(args[2]);
     }
 	auto data = GenerateRandomPoints(data_count);
-	clock_t start = clock();
+	auto start = system_clock::now();
 	auto result = Kmeans(data, cluster_count);
-	clock_t end = clock();
-	double elapsed = (end - start)/1000.0;
-    //PrintToFile("output.txt",result);
+	auto end = system_clock::now();
+    auto elapsed_seconds = duration_cast<milliseconds>(end-start).count();
+	cout<<"Serial   Elapsed Time:"<<elapsed_seconds<<"ms"<<endl;
+	PrintToFile("output.txt",result);
+	return -1;	
+    
 	// for (uint i=0;i<result.size();i++)
 	// {
 	// 	result[i].Print();
 	// }
-	cout<<"Serial   Elapsed Time:"<<elapsed<<"ms"<<endl;
-	return -1;
+
 }
