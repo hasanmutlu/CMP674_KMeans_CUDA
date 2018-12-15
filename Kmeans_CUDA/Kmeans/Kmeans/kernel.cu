@@ -4,14 +4,19 @@
 #include <cuda.h>
 #include <curand_kernel.h>
 
+#define int_ptr int*
+#define double_ptr double*
+#define X(point) point[0]
+#define Y(point) point[1]
 
+#pragma region Random initializer methods
 __global__ void setup_rand_kernel(curandState *state)
 {
 	int id = threadIdx.x + blockIdx.x * blockDim.x;
 	curand_init(1234, id, 0, &state[id]);
 }
 
-__global__ void generate_rand_kernel(curandState *state, int n,	int *result)
+__global__ void generate_rand_kernel(curandState *state, int n, int_ptr result)
 {
 	int id = threadIdx.x + blockIdx.x * blockDim.x;
 	int x;
@@ -21,21 +26,25 @@ __global__ void generate_rand_kernel(curandState *state, int n,	int *result)
 	result[id] += x;
 }
 
-__device__ double get_distance_to_centroid(double *centroid, int *point)
+#pragma endregion
+
+//Get distance of point to given Centroid
+__device__ double get_distance_to_centroid(double_ptr centroid, int_ptr point)
 {
-	int point_x = point[0];
-	int point_y = point[1];
-	double centroid_x = centroid[0];
-	double centroid_y = centroid[1];
+	int point_x = X(point);
+	int point_y = Y(point);
+	double centroid_x = X(centroid);
+	double centroid_y = Y(centroid);
 	double diffX = point_x - centroid_x;
 	double diffY = point_y - centroid_y;
 	return sqrtf(diffX * diffX + diffY * diffY);
 }
 
-__device__ int get_min_distance_centroid(double *centroids , int *point, int centroid_count)
+//Find centroid which distance is minumum to given point 
+__device__ int get_min_distance_centroid(double_ptr centroids , int_ptr point, int centroid_count)
 {
-	int point_x = point[0];
-	int point_y = point[1];
+	int point_x = X(point);
+	int point_y = Y(point);
 	int min = 0;
 	double min_value = 0;
 	for (int i=0 ; i< centroid_count; i+=2)
@@ -50,20 +59,21 @@ __device__ int get_min_distance_centroid(double *centroids , int *point, int cen
 	return min;
 }
 
-__device__ double *recenter_centroid(double *centroid, int *points, int point_count)
+//recenter given centroid according to points of it
+__device__ double_ptr recenter_centroid(double_ptr centroid, int_ptr points, int point_count)
 {
 	double result[2];
-	result[0] = 0;
-	result[1] = 0;
+	X(result) = 0;
+	Y(result) = 0;
 	for (int i=0 ; i<point_count *2 ; i+=2)
 	{
-		result[0] += points[i] / point_count;
-		result[1] += points[i + 1] / point_count;
+		X(result) += points[i] / point_count;
+		Y(result) += points[i + 1] / point_count;
 	}
 	return result;
 }
 
-__global__ void kmeans(int *points, int *result )
+__global__ void kmeans(int_ptr points, int_ptr result )
 {
 	int point_count = 4096;
 	int centroid_count = 5;
@@ -94,7 +104,7 @@ int *generate_random_points()
 
 }
 
-int *kmeans_cuda()
+int_ptr kmeans_cuda()
 {
 	cudaDeviceReset();
 	int *points, *devPoints, *devResult, *hostResult;
@@ -119,14 +129,24 @@ int *kmeans_cuda()
 
 }
 
+//Birinci Algoritma
+//1.random noktalari olustur
+//2.random centroid merkezleri olustur
+//3.geriye her bir centroid icin olusturulan sayi kadar olacak sekilde centroidlerin noktalarini bul ve geriye dondur
+//4.her bir centroid in suanki merkez noktalarini tut
+//5.merkez noktalarini guncelle
+//6.eger merkez degismisse 3. adima git 
+//7.ciktilari ekrana ve dosyaya yazdir
+//8.ciktilari python kodu ile ekrana cizdirebilirsin
+
 
 int main(int argc, char *argv[])
 {
 	int sampleCount = 5 * 2;
-	int *result = kmeans_cuda();
+	int_ptr result = kmeans_cuda();
 	for (int i = 0; i < sampleCount; i += 2) {
-		int &x = result[i];
-		int &y = result[i + 1];
+		int &x = X(result);
+		int &y = Y(result);
 		printf("X: %d , Y: %d\n", x, y);
 	}
 	system("pause");
