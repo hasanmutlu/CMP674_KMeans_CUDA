@@ -6,24 +6,30 @@
 
 #define int_ptr int*
 #define double_ptr double*
-#define X(point) point[0]
-#define Y(point) point[1]
+#define X(point) point[0] // returns X of given point
+#define Y(point) point[1] // returns Y of given point
+#define P(list,i) &(list[i]) //returns i. point from given list
 
 #pragma region Random initializer methods
-__global__ void setup_rand_kernel(curandState *state)
+__global__ void setup_rand_kernel(curandState *state, int sampleCount)
 {
 	int id = threadIdx.x + blockIdx.x * blockDim.x;
-	curand_init(1234, id, 0, &state[id]);
+	if (id < sampleCount)
+	{
+		curand_init(sampleCount, id, 0, &state[id]);
+	}
 }
 
-__global__ void generate_rand_kernel(curandState *state, int n, int_ptr result)
+__global__ void generate_rand_kernel(curandState *state, int sampleCount, int_ptr result)
 {
 	int id = threadIdx.x + blockIdx.x * blockDim.x;
-	int x;
-	curandState localState = state[id];
-	x = (curand(&localState) % 100 * 2) - 100;
-	state[id] = localState;
-	result[id] += x;
+	if (id < sampleCount)
+	{
+		curandState localState = state[id];
+		int x = (curand(&localState) % 100 * 2) - 100;
+		state[id] = localState;
+		result[id] += x;
+	}
 }
 
 #pragma endregion
@@ -86,31 +92,70 @@ __global__ void kmeans(int_ptr points, int_ptr result )
 }
 
 
-int *generate_random_points()
-{ 
+//Birinci Algoritma
+//1.random noktalari olustur OK
+//2.random centroid merkezleri olustur OK
+//3.geriye her bir centroid icin olusturulan sayi kadar olacak sekilde centroidlerin noktalarini bul ve geriye dondur
+//4.her bir centroid in suanki merkez noktalarini tut
+//5.merkez noktalarini guncelle
+//6.eger merkez degismisse 3. adima git 
+//7.ciktilari ekrana ve dosyaya yazdir
+//8.ciktilari python kodu ile ekrana cizdirebilirsin
+
+void cudaGetRandomPoints(int count, int_ptr &result )
+{
 	curandState *devStates;
-	int *devResults, *hostResults;
-	int sampleCount = 4096 * 2;
-	hostResults = new int[sampleCount];
+	int_ptr devResults;
+	int sampleCount = count * 2;
+	int blockCount = 0;
+	if (count % 32 == 0)
+	{
+		blockCount = sampleCount / 32;
+	}
+	else
+	{
+		blockCount = ((int)(sampleCount / 32)) + 1;
+	}
+	result = new int[sampleCount];
 	cudaMalloc((void **)&devResults, sampleCount * sizeof(int));
 	cudaMemset(devResults, 0, sampleCount * sizeof(int));
 	cudaMalloc((void **)&devStates, sampleCount * sizeof(curandState));
-	setup_rand_kernel <<<64, 64 >>>(devStates);
-	generate_rand_kernel <<<64, 64 >>>(devStates, sampleCount, devResults);
-	cudaMemcpy(hostResults, devResults, sampleCount * sizeof(int), cudaMemcpyDeviceToHost);
+	setup_rand_kernel << <blockCount, 32 >> >(devStates, sampleCount);
+	generate_rand_kernel << <blockCount, 32 >> >(devStates, sampleCount, devResults);
+	cudaMemcpy(result, devResults, sampleCount * sizeof(int), cudaMemcpyDeviceToHost);
 	cudaFree(devStates);
 	cudaFree(devResults);
-	return hostResults;
-
 }
 
-int_ptr kmeans_cuda()
+void print_points(int_ptr list, int count) 
+{
+	for (int i=0;i<count * 2;i+=2)
+	{
+		int_ptr point = P(list, i);
+		int x = X(point);
+		int y = Y(point);
+		printf("%d -> (%d,%d)\n",i/2,x,y);
+	}
+}
+
+bool checkCentroidChanged(double_ptr curCentroid, double_ptr prevCentroid)
+{
+	return X(curCentroid) == X(prevCentroid) && Y(curCentroid) == Y(prevCentroid);
+}
+
+
+void cudaKmeans()
 {
 	cudaDeviceReset();
-	int *points, *devPoints, *devResult, *hostResult;
+	int_ptr points, *devPoints, *devResult, *hostResult,*centroids;
 	int centroidCount = 5;
 	int pointCount = 4096;
-	points = generate_random_points();
+	cudaGetRandomPoints(pointCount, points);
+	cudaGetRandomPoints(centroidCount, centroids);
+
+
+
+	/*
 	hostResult = new int[centroidCount * 2];
 	
 	cudaMalloc((void**)devPoints, pointCount * 2 * sizeof(int));
@@ -124,31 +169,16 @@ int_ptr kmeans_cuda()
 	cudaFree(devPoints);
 	cudaFree(devResult);
 	cudaDeviceReset();
-	return hostResult;
+	*/
+
 
 
 }
 
-//Birinci Algoritma
-//1.random noktalari olustur
-//2.random centroid merkezleri olustur
-//3.geriye her bir centroid icin olusturulan sayi kadar olacak sekilde centroidlerin noktalarini bul ve geriye dondur
-//4.her bir centroid in suanki merkez noktalarini tut
-//5.merkez noktalarini guncelle
-//6.eger merkez degismisse 3. adima git 
-//7.ciktilari ekrana ve dosyaya yazdir
-//8.ciktilari python kodu ile ekrana cizdirebilirsin
-
 
 int main(int argc, char *argv[])
 {
-	int sampleCount = 5 * 2;
-	int_ptr result = kmeans_cuda();
-	for (int i = 0; i < sampleCount; i += 2) {
-		int &x = X(result);
-		int &y = Y(result);
-		printf("X: %d , Y: %d\n", x, y);
-	}
+	cudaKmeans();
 	system("pause");
 	return 1;
 }
