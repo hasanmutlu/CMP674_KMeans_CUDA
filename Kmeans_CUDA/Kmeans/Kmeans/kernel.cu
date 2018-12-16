@@ -1,8 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
-
 #include <cuda.h>
-#include <curand_kernel.h>
+//#include <curand_kernel.h>
+#include <cstdlib>
+#include <fstream>
+#include <chrono>
+#include <iostream>
 
 #define int_ptr int*
 #define float_ptr float*
@@ -11,13 +14,17 @@
 #define POINT(list,i) &(list[i]) //returns i. point from given list
 #define SIZE(count) count * 2
 
+using namespace std;
+using namespace chrono;
+
 #pragma region Random initializer methods
+/*
 __global__ void setup_rand_kernel(curandState *state, int sampleCount)
 {
 	int id = threadIdx.x + blockIdx.x * blockDim.x;
 	if (id < sampleCount)
 	{
-		curand_init(sampleCount, id, 0, &state[id]);
+		curand_init(id, id, 0, &state[id]);
 	}
 }
 
@@ -32,7 +39,7 @@ __global__ void generate_rand_kernel(curandState *state, int sampleCount, float_
 		result[id] = x;
 	}
 }
-
+*/
 #pragma endregion
 
 //Get distance of point to given Centroid
@@ -69,8 +76,8 @@ __global__ void recenter_centroids(float_ptr points, int point_count,int_ptr cen
 		float_ptr point = POINT(points, id*2);
 		float_ptr centroid = POINT(centroids, centroidPointMap[id] * 2);
 		int pointCount = centroidPointCount[centroidPointMap[id]];
-		atomicAdd(&(X(centroid)), (X(point) / pointCount));//TODO: will be optimized
-		atomicAdd(&(Y(centroid)), (Y(point) / pointCount));//TODO: will be optimized
+		atomicAdd(&(X(centroid)), (X(point) / pointCount));
+		atomicAdd(&(Y(centroid)), (Y(point) / pointCount));
 	}
 }
 
@@ -82,21 +89,10 @@ __global__ void kmeans(float_ptr points, int point_count, float_ptr centroids, i
 		float_ptr point = POINT(points, id * 2);
 		int closest_centroid = get_closest_centroid(centroids, point, centroidCount);
 		centroidPointMap[id] = closest_centroid;
-		atomicAdd(&(centroidPointCount[closest_centroid]), 1);//TODO: will be optimized
-		//centroidPointCount[closest_centroid]++;
+		atomicAdd(&(centroidPointCount[closest_centroid]), 1);
 	}
 }
 
-
-//Birinci Algoritma
-//1.random noktalari olustur OK
-//2.random centroid merkezleri olustur OK
-//3.geriye her bir centroid icin olusturulan sayi kadar olacak sekilde centroidlerin noktalarini bul ve geriye dondur
-//4.her bir centroid in suanki merkez noktalarini tut
-//5.merkez noktalarini guncelle
-//6.eger merkez degismisse 3. adima git 
-//7.ciktilari ekrana ve dosyaya yazdir
-//8.ciktilari python kodu ile ekrana cizdirebilirsin
 
 int getBlockCount(int count)
 {
@@ -112,7 +108,19 @@ int getBlockCount(int count)
 	return blockCount;
 }
 
+void GenerateRandomPoint(int count, float_ptr &result)
+{
+	result = new float[SIZE(count)];
+	for (int i = 0; i < SIZE(count); i+=2)
+	{
+		int randX = (rand() % 100 * 2) - 100;
+		int randY = (rand() % 100 * 2) - 100;
+		result[i] = randX;
+		result[i+1] = randY;
+	}
+}
 
+/*
 void cudaGetRandomPoints(int count, float_ptr &result )
 {
 	curandState *devStates;
@@ -121,7 +129,6 @@ void cudaGetRandomPoints(int count, float_ptr &result )
 	int blockCount = getBlockCount(sampleCount);
 	result = new float[sampleCount];
 	cudaMalloc((void **)&devResults, sampleCount * sizeof(float));
-	cudaMemset(devResults, 0, sampleCount * sizeof(float));
 	cudaMalloc((void **)&devStates, sampleCount * sizeof(curandState));
 	setup_rand_kernel << <blockCount, 32 >> >(devStates, sampleCount);
 	generate_rand_kernel << <blockCount, 32 >> >(devStates, sampleCount, devResults);
@@ -129,6 +136,7 @@ void cudaGetRandomPoints(int count, float_ptr &result )
 	cudaFree(devStates);
 	cudaFree(devResults);
 }
+*/
 
 void print_points(float_ptr list, int count) 
 {
@@ -167,67 +175,88 @@ bool isProcessCompleted(float_ptr cur_centroids, float_ptr prev_centroids, int c
 }
 
 
-void cudaKmeansProcess(float_ptr points, int pointCount, float_ptr centroids, int centroidCount, int_ptr centroidPointMap, int_ptr centroidPointCount)
+void cudaKmeansProcess(float_ptr devPoints, float_ptr devCentroids, int_ptr devPointCount, int_ptr devPointMap,float_ptr centroids, int pointCount, int centroidCount, int blockCount)
 {
-	float_ptr devPoints;
-	float_ptr devCentroids;
-	float_ptr devNewCentroids;
-	int_ptr devPointMap;
-	int_ptr devPointCount;
-	int blockCount = getBlockCount(pointCount);
-	cudaMalloc((void **)&devPointMap, pointCount * sizeof(int));
-	cudaMemset(devPointMap, 0, pointCount * sizeof(int));
-	cudaMalloc((void **)&devPointCount, centroidCount * sizeof(int));
-	cudaMemset(devPointCount, 0, centroidCount * sizeof(int));
-	cudaMalloc((void **)&devPoints, SIZE(pointCount) * sizeof(float));
-	cudaMemset(devPoints, 0, SIZE(pointCount) * sizeof(float));
-	cudaMalloc((void **)&devCentroids, SIZE(centroidCount) * sizeof(float));
-	cudaMemset(devCentroids, 0, SIZE(centroidCount) * sizeof(float));
-	cudaMalloc((void **)&devNewCentroids, SIZE(centroidCount) * sizeof(float));
-	cudaMemset(devNewCentroids, 0, SIZE(centroidCount) * sizeof(float));
-	memset(centroidPointMap, 0, pointCount * sizeof(int));
-	memset(centroidPointCount, 0, centroidCount * sizeof(int));
-	cudaMemcpy(devPoints, points, SIZE(pointCount) * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(devCentroids, centroids, SIZE(centroidCount) * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(devPointMap, centroidPointMap, pointCount * sizeof(int), cudaMemcpyHostToDevice);
-	cudaMemcpy(devPointCount, centroidPointCount, centroidCount * sizeof(int), cudaMemcpyHostToDevice);
-	kmeans<<<blockCount,32>>>(devPoints, pointCount, devCentroids, centroidCount, devPointMap, devPointCount);
+	cudaMemset(devPointCount, 0, centroidCount * sizeof(float));
+	kmeans <<<blockCount, 32 >>>(devPoints, pointCount, devCentroids, centroidCount, devPointMap, devPointCount);
 	cudaDeviceSynchronize();
 	cudaMemset(devCentroids, 0, SIZE(centroidCount) * sizeof(float));
-	recenter_centroids <<<blockCount, 32 >>> (devPoints, pointCount, devPointMap, devNewCentroids, devPointCount);
-	cudaMemcpy(centroidPointMap, devPointMap, pointCount * sizeof(int), cudaMemcpyDeviceToHost);
-	cudaMemcpy(centroidPointCount, devPointCount, centroidCount * sizeof(int), cudaMemcpyDeviceToHost);
-	cudaMemcpy(centroids, devNewCentroids, SIZE(centroidCount) * sizeof(float), cudaMemcpyDeviceToHost);
-	cudaFree(devPoints);
-	cudaFree(devCentroids);
-	cudaFree(devNewCentroids);
-	cudaFree(devPointMap);
-	cudaFree(devPointCount);
+	recenter_centroids <<<blockCount, 32 >> > (devPoints, pointCount, devPointMap, devCentroids, devPointCount);
+	cudaMemcpy(centroids, devCentroids, SIZE(centroidCount) * sizeof(float), cudaMemcpyDeviceToHost);
 }
-
-
-int main(int argc, char *argv[])
+void cudaKmeans(int pointCount, int centroidCount)
 {
-	cudaDeviceReset();
-	int centroidCount = 3;
-	int pointCount = 10;
-	float_ptr points;
-	float_ptr centroids;
+	float_ptr points, *devPoints;
+	float_ptr centroids, *devCentroids;
 	float_ptr prev_centroids = new float[SIZE(centroidCount)];
 	int_ptr centroidPointMap = reinterpret_cast<int_ptr>(calloc(pointCount, sizeof(int)));
 	int_ptr centroidPointCount = reinterpret_cast<int_ptr>(calloc(centroidCount, sizeof(int)));
-	cudaGetRandomPoints(pointCount, points);
-	cudaGetRandomPoints(centroidCount, centroids);
+	int_ptr devPointMap;
+	int_ptr devPointCount;
+	//cudaGetRandomPoints(pointCount, points);
+	//cudaGetRandomPoints(centroidCount, centroids);
+	auto start = system_clock::now();
+	GenerateRandomPoint(pointCount, points);
+	GenerateRandomPoint(centroidCount, centroids);
+	int blockCount = getBlockCount(pointCount);
+	cudaMalloc((void **)&devPoints, SIZE(pointCount) * sizeof(float));
+	cudaMalloc((void **)&devCentroids, SIZE(centroidCount) * sizeof(float));
+	cudaMalloc((void **)&devPointMap, pointCount * sizeof(int));
+	cudaMalloc((void **)&devPointCount, centroidCount * sizeof(int));
+	cudaMemcpy(devPoints, points, SIZE(pointCount) * sizeof(float), cudaMemcpyHostToDevice);
 	bool found = false;
+	
 	while (found == false)
 	{
 		memcpy(prev_centroids, centroids, sizeof(float)*SIZE(centroidCount));
-		cudaKmeansProcess(points, pointCount, centroids, centroidCount,centroidPointMap,centroidPointCount);
+		cudaMemcpy(devCentroids, centroids, SIZE(centroidCount) * sizeof(float), cudaMemcpyHostToDevice);
+		cudaKmeansProcess(devPoints, devCentroids, devPointCount, devPointMap, centroids, pointCount, centroidCount, blockCount);
 		found = isProcessCompleted(centroids, prev_centroids, centroidCount);
 	}
+	auto end = system_clock::now();
+	auto elapsed_seconds = duration_cast<milliseconds>(end - start).count();
+	cout << "Elapsed Time:" << elapsed_seconds << "ms" << endl;
 	print_points(centroids, centroidCount);
-	cudaDeviceReset();
-	system("pause");
+	cudaFree(devPoints);
+	cudaFree(devCentroids);
+	cudaFree(devPointMap);
+	cudaFree(devPointCount);
+
+}
+
+
+void PrintToFile(const char *file, float_ptr centroids, float_ptr points)
+{
+	/*
+	fstream output(file, fstream::out);
+	uint c_size = centroids.size();
+	for (int i = 0; i<c_size; i++) {
+		const Centroid &centroid = centroids[i];
+		uint point_size = centroid.points.size();
+		output << centroid.position.ToString() << "," << point_size << endl;
+		for (uint j = 0; j< point_size; j++)
+		{
+			const Point &p = centroid.points[j];
+			output << p.ToString() << endl;
+		}
+	}
+	output.close();
+	*/
+}
+
+int main(int argc, char *argv[])
+{
+	int centroidCount = 0;
+	int pointCount = 0;
+	if (argc > 2)
+	{
+		srand(time(NULL));
+		pointCount = atoi(argv[1]);
+		centroidCount = atoi(argv[2]);
+		cudaDeviceReset();
+		cudaKmeans(pointCount, centroidCount);
+		cudaDeviceReset();
+	}
 	return 1;
 }
 
