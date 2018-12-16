@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda.h>
-//#include <curand_kernel.h>
+#include <curand_kernel.h>
 #include <cstdlib>
 #include <fstream>
 #include <chrono>
@@ -113,8 +113,8 @@ void GenerateRandomPoint(int count, float_ptr &result)
 	result = new float[SIZE(count)];
 	for (int i = 0; i < SIZE(count); i+=2)
 	{
-		int randX = (rand() % 100 * 2) - 100;
-		int randY = (rand() % 100 * 2) - 100;
+		float randX = static_cast<float>((rand() % 100 * 2) - 100);
+		float randY = static_cast<float>((rand() % 100 * 2) - 100);
 		result[i] = randX;
 		result[i+1] = randY;
 	}
@@ -184,6 +184,27 @@ void cudaKmeansProcess(float_ptr devPoints, float_ptr devCentroids, int_ptr devP
 	recenter_centroids <<<blockCount, 32 >> > (devPoints, pointCount, devPointMap, devCentroids, devPointCount);
 	cudaMemcpy(centroids, devCentroids, SIZE(centroidCount) * sizeof(float), cudaMemcpyDeviceToHost);
 }
+
+void PrintToFile(const char *file, float_ptr points, float_ptr centroids,int pointCount,int centroidCount,int_ptr centroidPointMap,int_ptr centroidPointCount)
+{
+	fstream output(file, fstream::out);
+	for (int i=0;i<centroidCount;i++)
+	{
+		int cid = i * 2;
+		float_ptr centroid = POINT(centroids,cid);
+		int count = centroidPointCount[i];
+		output << X(centroid) << "," << Y(centroid) << "," << count << endl;
+		for (int j=0 ; j<pointCount;j++)
+		{
+			if (centroidPointMap[j] == i)
+			{
+				float_ptr point = POINT(points, j*2);
+				output << X(point) << "," << Y(point) << endl;
+			}
+		}
+	}
+}
+
 void cudaKmeans(int pointCount, int centroidCount)
 {
 	float_ptr points, *devPoints;
@@ -205,7 +226,6 @@ void cudaKmeans(int pointCount, int centroidCount)
 	cudaMalloc((void **)&devPointCount, centroidCount * sizeof(int));
 	cudaMemcpy(devPoints, points, SIZE(pointCount) * sizeof(float), cudaMemcpyHostToDevice);
 	bool found = false;
-	
 	while (found == false)
 	{
 		memcpy(prev_centroids, centroids, sizeof(float)*SIZE(centroidCount));
@@ -216,7 +236,10 @@ void cudaKmeans(int pointCount, int centroidCount)
 	auto end = system_clock::now();
 	auto elapsed_seconds = duration_cast<milliseconds>(end - start).count();
 	cout << "Elapsed Time:" << elapsed_seconds << "ms" << endl;
-	print_points(centroids, centroidCount);
+	cudaMemcpy(centroids, devCentroids, SIZE(centroidCount) * sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(centroidPointCount, devPointCount, centroidCount * sizeof(int), cudaMemcpyDeviceToHost);
+	cudaMemcpy(centroidPointMap, devPointMap, pointCount * sizeof(int), cudaMemcpyDeviceToHost);
+	PrintToFile("cuda_output.txt",points, prev_centroids,pointCount, centroidCount,centroidPointMap,centroidPointCount);
 	cudaFree(devPoints);
 	cudaFree(devCentroids);
 	cudaFree(devPointMap);
@@ -225,24 +248,7 @@ void cudaKmeans(int pointCount, int centroidCount)
 }
 
 
-void PrintToFile(const char *file, float_ptr centroids, float_ptr points)
-{
-	/*
-	fstream output(file, fstream::out);
-	uint c_size = centroids.size();
-	for (int i = 0; i<c_size; i++) {
-		const Centroid &centroid = centroids[i];
-		uint point_size = centroid.points.size();
-		output << centroid.position.ToString() << "," << point_size << endl;
-		for (uint j = 0; j< point_size; j++)
-		{
-			const Point &p = centroid.points[j];
-			output << p.ToString() << endl;
-		}
-	}
-	output.close();
-	*/
-}
+
 
 int main(int argc, char *argv[])
 {
