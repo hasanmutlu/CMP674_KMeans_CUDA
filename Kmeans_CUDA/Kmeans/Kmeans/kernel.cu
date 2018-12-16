@@ -5,10 +5,12 @@
 #include <curand_kernel.h>
 
 #define int_ptr int*
-#define double_ptr double*
+#define float_ptr float*
+#define list_ptr float**
 #define X(point) point[0] // returns X of given point
 #define Y(point) point[1] // returns Y of given point
-#define P(list,i) &(list[i]) //returns i. point from given list
+#define POINT(list,i) &(list[i]) //returns i. point from given list
+#define SIZE(count) count * 2
 
 #pragma region Random initializer methods
 __global__ void setup_rand_kernel(curandState *state, int sampleCount)
@@ -20,7 +22,7 @@ __global__ void setup_rand_kernel(curandState *state, int sampleCount)
 	}
 }
 
-__global__ void generate_rand_kernel(curandState *state, int sampleCount, int_ptr result)
+__global__ void generate_rand_kernel(curandState *state, int sampleCount, float_ptr result)
 {
 	int id = threadIdx.x + blockIdx.x * blockDim.x;
 	if (id < sampleCount)
@@ -35,27 +37,27 @@ __global__ void generate_rand_kernel(curandState *state, int sampleCount, int_pt
 #pragma endregion
 
 //Get distance of point to given Centroid
-__device__ double get_distance_to_centroid(double_ptr centroid, int_ptr point)
+__device__ double get_distance_to_centroid(float_ptr centroid, int_ptr point)
 {
 	int point_x = X(point);
 	int point_y = Y(point);
-	double centroid_x = X(centroid);
-	double centroid_y = Y(centroid);
-	double diffX = point_x - centroid_x;
-	double diffY = point_y - centroid_y;
+	float centroid_x = X(centroid);
+	float centroid_y = Y(centroid);
+	float diffX = point_x - centroid_x;
+	float diffY = point_y - centroid_y;
 	return sqrtf(diffX * diffX + diffY * diffY);
 }
 
 //Find centroid which distance is minumum to given point 
-__device__ int get_min_distance_centroid(double_ptr centroids , int_ptr point, int centroid_count)
+__device__ int get_min_distance_centroid(float_ptr centroids , int_ptr point, int centroid_count)
 {
 	int point_x = X(point);
 	int point_y = Y(point);
 	int min = 0;
-	double min_value = 0;
+	float min_value = 0;
 	for (int i=0 ; i< centroid_count; i+=2)
 	{
-		double distance = get_distance_to_centroid(centroids + i, point);
+		float distance = get_distance_to_centroid(centroids + i, point);
 		if (min == 0 || distance < min_value)
 		{
 			min = i / 2;
@@ -66,9 +68,9 @@ __device__ int get_min_distance_centroid(double_ptr centroids , int_ptr point, i
 }
 
 //recenter given centroid according to points of it
-__device__ double_ptr recenter_centroid(double_ptr centroid, int_ptr points, int point_count)
+__device__ float_ptr recenter_centroid(float_ptr centroid, int_ptr points, int point_count)
 {
-	double result[2];
+	float result[2];
 	X(result) = 0;
 	Y(result) = 0;
 	for (int i=0 ; i<point_count *2 ; i+=2)
@@ -102,10 +104,10 @@ __global__ void kmeans(int_ptr points, int_ptr result )
 //7.ciktilari ekrana ve dosyaya yazdir
 //8.ciktilari python kodu ile ekrana cizdirebilirsin
 
-void cudaGetRandomPoints(int count, int_ptr &result )
+void cudaGetRandomPoints(int count, float_ptr &result )
 {
 	curandState *devStates;
-	int_ptr devResults;
+	float_ptr devResults;
 	int sampleCount = count * 2;
 	int blockCount = 0;
 	if (count % 32 == 0)
@@ -116,42 +118,92 @@ void cudaGetRandomPoints(int count, int_ptr &result )
 	{
 		blockCount = ((int)(sampleCount / 32)) + 1;
 	}
-	result = new int[sampleCount];
-	cudaMalloc((void **)&devResults, sampleCount * sizeof(int));
-	cudaMemset(devResults, 0, sampleCount * sizeof(int));
+	result = new float[sampleCount];
+	cudaMalloc((void **)&devResults, sampleCount * sizeof(float));
+	cudaMemset(devResults, 0, sampleCount * sizeof(float));
 	cudaMalloc((void **)&devStates, sampleCount * sizeof(curandState));
 	setup_rand_kernel << <blockCount, 32 >> >(devStates, sampleCount);
 	generate_rand_kernel << <blockCount, 32 >> >(devStates, sampleCount, devResults);
-	cudaMemcpy(result, devResults, sampleCount * sizeof(int), cudaMemcpyDeviceToHost);
+	cudaMemcpy(result, devResults, sampleCount * sizeof(float), cudaMemcpyDeviceToHost);
 	cudaFree(devStates);
 	cudaFree(devResults);
 }
 
-void print_points(int_ptr list, int count) 
+void print_points(float_ptr list, int count) 
 {
 	for (int i=0;i<count * 2;i+=2)
 	{
-		int_ptr point = P(list, i);
-		int x = X(point);
-		int y = Y(point);
-		printf("%d -> (%d,%d)\n",i/2,x,y);
+		float_ptr point = POINT(list, i);
+		float x = X(point);
+		float y = Y(point);
+		printf("%d -> (%lf,%lf)\n",i/2,x,y);
 	}
 }
 
-bool checkCentroidChanged(double_ptr curCentroid, double_ptr prevCentroid)
+bool isCentroidChanged(float_ptr curCentroid, float_ptr prevCentroid)
 {
-	return X(curCentroid) == X(prevCentroid) && Y(curCentroid) == Y(prevCentroid);
+	return X(curCentroid) != X(prevCentroid) || Y(curCentroid) != Y(prevCentroid);
+}
+
+bool checkProcessCompleted(float_ptr cur_centroids, float_ptr prev_centroids, int count)
+{
+	bool result = true;
+	for (int i=0;i<SIZE(count);i+=2)
+	{
+		float_ptr c_centroid = POINT(cur_centroids, i);
+		float_ptr p_centroid = POINT(prev_centroids, i);
+		if (isCentroidChanged(c_centroid, p_centroid))
+		{
+
+		}
+
+
+	}
+	return result;
+
+}
+
+void createCentroidsPoints(int centroidCount, int pointCount, list_ptr &result)
+{
+	result = reinterpret_cast<float_ptr*>(calloc(centroidCount, sizeof(float_ptr)));
+	for (int i=0;i<centroidCount;i++)
+	{
+		result[i] = reinterpret_cast<float_ptr>(calloc(SIZE(pointCount),sizeof(float)));
+	}
 }
 
 
 void cudaKmeans()
 {
 	cudaDeviceReset();
-	int_ptr points, *devPoints, *devResult, *hostResult,*centroids;
 	int centroidCount = 5;
 	int pointCount = 4096;
+	float_ptr points;
+	float_ptr centroids;
+	list_ptr centroidPoints;
+	int_ptr pointCountOfCentroids = new int[centroidCount];
+	for (int i = 0; i<centroidCount;i++)
+	{
+		pointCountOfCentroids[i] = pointCount;
+	}
 	cudaGetRandomPoints(pointCount, points);
 	cudaGetRandomPoints(centroidCount, centroids);
+	createCentroidsPoints(centroidCount, pointCount, centroidPoints);
+	for (int i=0;i<centroidCount;i++)
+	{
+		print_points(centroidPoints[i],pointCount);
+		system("pause");
+
+	}
+	bool found = false;
+	while (found == false)
+	{
+
+		//cudaKmeansProcess(points, pointCount, centroids, centroidCount);
+		//cudaRecenterCentroids()
+		//found = is
+		found = true;
+	}
 
 
 
