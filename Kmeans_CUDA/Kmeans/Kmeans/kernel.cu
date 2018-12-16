@@ -29,7 +29,7 @@ __global__ void generate_rand_kernel(curandState *state, int sampleCount, float_
 		curandState localState = state[id];
 		int x = (curand(&localState) % 100 * 2) - 100;
 		state[id] = localState;
-		result[id] += x;
+		result[id] = x;
 	}
 }
 
@@ -47,11 +47,11 @@ __device__ float get_distance_to_centroid(float_ptr centroid, float_ptr point)
 __device__ int get_closest_centroid(float_ptr centroids , float_ptr point, int centroid_count)
 {
 	int min = 0;
-	float min_value = 0;
-	for (int i=0 ; i< SIZE(centroid_count); i+=2)
+	float min_value = get_distance_to_centroid(POINT(centroids, 0), point);
+	for (int i=2 ; i< SIZE(centroid_count); i+=2)
 	{
 		float distance = get_distance_to_centroid(POINT(centroids,i), point);
-		if (min == 0 || distance < min_value)
+		if (distance < min_value)
 		{
 			min = i / 2;
 			min_value = distance;
@@ -82,7 +82,8 @@ __global__ void kmeans(float_ptr points, int point_count, float_ptr centroids, i
 		float_ptr point = POINT(points, id * 2);
 		int closest_centroid = get_closest_centroid(centroids, point, centroidCount);
 		centroidPointMap[id] = closest_centroid;
-		centroidPointCount[closest_centroid]++;
+		atomicAdd(&(centroidPointCount[closest_centroid]), 1);//TODO: will be optimized
+		//centroidPointCount[closest_centroid]++;
 	}
 }
 
@@ -97,20 +98,27 @@ __global__ void kmeans(float_ptr points, int point_count, float_ptr centroids, i
 //7.ciktilari ekrana ve dosyaya yazdir
 //8.ciktilari python kodu ile ekrana cizdirebilirsin
 
+int getBlockCount(int count)
+{
+	int blockCount = 0;
+	if (count % 32 == 0)
+	{
+		blockCount = count / 32;
+	}
+	else
+	{
+		blockCount = ((int)(count / 32)) + 1;
+	}
+	return blockCount;
+}
+
+
 void cudaGetRandomPoints(int count, float_ptr &result )
 {
 	curandState *devStates;
 	float_ptr devResults;
 	int sampleCount = count * 2;
-	int blockCount = 0;
-	if (count % 32 == 0)
-	{
-		blockCount = sampleCount / 32;
-	}
-	else
-	{
-		blockCount = ((int)(sampleCount / 32)) + 1;
-	}
+	int blockCount = getBlockCount(sampleCount);
 	result = new float[sampleCount];
 	cudaMalloc((void **)&devResults, sampleCount * sizeof(float));
 	cudaMemset(devResults, 0, sampleCount * sizeof(float));
@@ -157,8 +165,30 @@ bool isProcessCompleted(float_ptr cur_centroids, float_ptr prev_centroids, int c
 
 void cudaKmeansProcess(float_ptr points, int pointCount, float_ptr centroids, int centroidCount, int_ptr &centroidPointMap, int_ptr &centroidPointCount)
 {
-
-
+	float_ptr devPoints;
+	float_ptr devCentroids;
+	int_ptr devPointMap;
+	int_ptr devPointCount;
+	int blockCount = getBlockCount(pointCount);
+	cudaMalloc((void **)&devPointMap, pointCount * sizeof(int));
+	cudaMemset(devPointMap, 0, pointCount * sizeof(int));
+	cudaMalloc((void **)&devPointCount, centroidCount * sizeof(int));
+	cudaMemset(devPointCount, 0, centroidCount * sizeof(int));
+	cudaMalloc((void **)&devPoints, SIZE(pointCount) * sizeof(float));
+	cudaMemset(devPoints, 0, SIZE(pointCount) * sizeof(float));
+	cudaMalloc((void **)&devCentroids, SIZE(centroidCount) * sizeof(float));
+	cudaMemset(devCentroids, 0, SIZE(centroidCount) * sizeof(float));
+	cudaMemcpy(devPoints, points, SIZE(pointCount) * sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(devCentroids, centroids, SIZE(centroidCount) * sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(devPointMap, centroidPointMap, pointCount * sizeof(int), cudaMemcpyHostToDevice);
+	cudaMemcpy(devPointCount, centroidPointCount, centroidCount * sizeof(int), cudaMemcpyHostToDevice);
+	kmeans<<<blockCount,32>>>(devPoints, pointCount, devCentroids, centroidCount, devPointMap, devPointCount);
+	cudaMemcpy(centroidPointMap, devPointMap, pointCount * sizeof(int), cudaMemcpyDeviceToHost);
+	cudaMemcpy(centroidPointCount, devPointCount, centroidCount * sizeof(int), cudaMemcpyDeviceToHost);
+	cudaFree(devPoints);
+	cudaFree(devCentroids);
+	cudaFree(devPointMap);
+	cudaFree(devPointCount);
 }
 
 void cudaRecenterCentroids(float_ptr points, int pointCount, float_ptr &centroids, int centroidCount, int_ptr centroidPointMap, int_ptr centroidPointCount)
@@ -184,6 +214,16 @@ void cudaKmeans()
 	{
 		memcpy(prev_centroids, centroids, sizeof(float)*SIZE(centroidCount));
 		cudaKmeansProcess(points, pointCount, centroids, centroidCount, centroidPointMap,centroidPointCount);
+		for (int i=0;i<pointCount;i++)
+		{
+			//printf("%d-> %d\n",i,centroidPointMap[i]);
+		}
+		printf("\n\n");
+		for (int i = 0; i<centroidCount; i++)
+		{
+			//printf("%d-> %d\n", i, centroidPointCount[i]);
+		}
+		system("pause");
 		cudaRecenterCentroids(points, pointCount, centroids, centroidCount, centroidPointMap,centroidPointCount);
 		found = isProcessCompleted(centroids, prev_centroids,centroidCount);
 	}
