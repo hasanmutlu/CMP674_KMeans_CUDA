@@ -61,16 +61,16 @@ __device__ int get_closest_centroid(float_ptr centroids , float_ptr point, int c
 }
 
 //recenter given centroid according to points of it.
-__global__ void recenter_centroids(float_ptr points, int point_count,int_ptr centroidPointMap, float_ptr newCentroids, int_ptr centroidPointCount)
+__global__ void recenter_centroids(float_ptr points, int point_count,int_ptr centroidPointMap, float_ptr centroids, int_ptr centroidPointCount)
 {
 	int id = threadIdx.x + blockIdx.x * blockDim.x;
 	if (id < point_count)
 	{
 		float_ptr point = POINT(points, id*2);
-		float_ptr centroid = POINT(newCentroids, centroidPointMap[id] * 2);
+		float_ptr centroid = POINT(centroids, centroidPointMap[id] * 2);
 		int pointCount = centroidPointCount[centroidPointMap[id]];
-		atomicAdd(&(X(centroid)), (X(point) / pointCount));
-		atomicAdd(&(Y(centroid)), (Y(point) / pointCount));
+		atomicAdd(&(X(centroid)), (X(point) / pointCount));//TODO: will be optimized
+		atomicAdd(&(Y(centroid)), (Y(point) / pointCount));//TODO: will be optimized
 	}
 }
 
@@ -167,7 +167,7 @@ bool isProcessCompleted(float_ptr cur_centroids, float_ptr prev_centroids, int c
 }
 
 
-void cudaKmeansProcess(float_ptr points, int pointCount, float_ptr &centroids, int centroidCount, int_ptr &centroidPointMap, int_ptr &centroidPointCount)
+void cudaKmeansProcess(float_ptr points, int pointCount, float_ptr centroids, int centroidCount, int_ptr centroidPointMap, int_ptr centroidPointCount)
 {
 	float_ptr devPoints;
 	float_ptr devCentroids;
@@ -185,12 +185,16 @@ void cudaKmeansProcess(float_ptr points, int pointCount, float_ptr &centroids, i
 	cudaMemset(devCentroids, 0, SIZE(centroidCount) * sizeof(float));
 	cudaMalloc((void **)&devNewCentroids, SIZE(centroidCount) * sizeof(float));
 	cudaMemset(devNewCentroids, 0, SIZE(centroidCount) * sizeof(float));
+	memset(centroidPointMap, 0, pointCount * sizeof(int));
+	memset(centroidPointCount, 0, centroidCount * sizeof(int));
 	cudaMemcpy(devPoints, points, SIZE(pointCount) * sizeof(float), cudaMemcpyHostToDevice);
 	cudaMemcpy(devCentroids, centroids, SIZE(centroidCount) * sizeof(float), cudaMemcpyHostToDevice);
 	cudaMemcpy(devPointMap, centroidPointMap, pointCount * sizeof(int), cudaMemcpyHostToDevice);
 	cudaMemcpy(devPointCount, centroidPointCount, centroidCount * sizeof(int), cudaMemcpyHostToDevice);
 	kmeans<<<blockCount,32>>>(devPoints, pointCount, devCentroids, centroidCount, devPointMap, devPointCount);
-	recenter_centroids << <blockCount, 32 >> > (devPoints, pointCount, devPointMap, devNewCentroids, devPointCount);
+	cudaDeviceSynchronize();
+	cudaMemset(devCentroids, 0, SIZE(centroidCount) * sizeof(float));
+	recenter_centroids <<<blockCount, 32 >>> (devPoints, pointCount, devPointMap, devNewCentroids, devPointCount);
 	cudaMemcpy(centroidPointMap, devPointMap, pointCount * sizeof(int), cudaMemcpyDeviceToHost);
 	cudaMemcpy(centroidPointCount, devPointCount, centroidCount * sizeof(int), cudaMemcpyDeviceToHost);
 	cudaMemcpy(centroids, devNewCentroids, SIZE(centroidCount) * sizeof(float), cudaMemcpyDeviceToHost);
@@ -205,8 +209,8 @@ void cudaKmeansProcess(float_ptr points, int pointCount, float_ptr &centroids, i
 int main(int argc, char *argv[])
 {
 	cudaDeviceReset();
-	int centroidCount = 3;
-	int pointCount = 10;
+	int centroidCount = 5;
+	int pointCount = 4096;
 	float_ptr points;
 	float_ptr centroids;
 	float_ptr prev_centroids = new float[SIZE(centroidCount)];
@@ -214,12 +218,11 @@ int main(int argc, char *argv[])
 	int_ptr centroidPointCount = reinterpret_cast<int_ptr>(calloc(centroidCount, sizeof(int)));
 	cudaGetRandomPoints(pointCount, points);
 	cudaGetRandomPoints(centroidCount, centroids);
-	print_points(points, pointCount);
 	bool found = false;
 	while (found == false)
 	{
 		memcpy(prev_centroids, centroids, sizeof(float)*SIZE(centroidCount));
-		cudaKmeansProcess(points, pointCount, centroids, centroidCount, centroidPointMap, centroidPointCount);
+		cudaKmeansProcess(points, pointCount, centroids, centroidCount,centroidPointMap,centroidPointCount);
 		found = isProcessCompleted(centroids, prev_centroids, centroidCount);
 	}
 	print_points(centroids, centroidCount);
