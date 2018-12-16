@@ -209,8 +209,8 @@ void cudaKmeansProcess(float_ptr points, int pointCount, float_ptr centroids, in
 int main(int argc, char *argv[])
 {
 	cudaDeviceReset();
-	int centroidCount = 5;
-	int pointCount = 4096;
+	int centroidCount = 3;
+	int pointCount = 10;
 	float_ptr points;
 	float_ptr centroids;
 	float_ptr prev_centroids = new float[SIZE(centroidCount)];
