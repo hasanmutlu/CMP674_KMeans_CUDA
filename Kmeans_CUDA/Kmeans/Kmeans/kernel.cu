@@ -17,31 +17,6 @@
 using namespace std;
 using namespace chrono;
 
-#pragma region Random initializer methods
-/*
-__global__ void setup_rand_kernel(curandState *state, int sampleCount)
-{
-	int id = threadIdx.x + blockIdx.x * blockDim.x;
-	if (id < sampleCount)
-	{
-		curand_init(id, id, 0, &state[id]);
-	}
-}
-
-__global__ void generate_rand_kernel(curandState *state, int sampleCount, float_ptr result)
-{
-	int id = threadIdx.x + blockIdx.x * blockDim.x;
-	if (id < sampleCount)
-	{
-		curandState localState = state[id];
-		int x = (curand(&localState) % 100 * 2) - 100;
-		state[id] = localState;
-		result[id] = x;
-	}
-}
-*/
-#pragma endregion
-
 //Get distance of point to given Centroid
 __device__ float get_distance_to_centroid(float_ptr centroid, float_ptr point)
 {
@@ -120,23 +95,6 @@ void GenerateRandomPoint(int count, float_ptr &result)
 	}
 }
 
-/*
-void cudaGetRandomPoints(int count, float_ptr &result )
-{
-	curandState *devStates;
-	float_ptr devResults;
-	int sampleCount = count * 2;
-	int blockCount = getBlockCount(sampleCount);
-	result = new float[sampleCount];
-	cudaMalloc((void **)&devResults, sampleCount * sizeof(float));
-	cudaMalloc((void **)&devStates, sampleCount * sizeof(curandState));
-	setup_rand_kernel << <blockCount, 32 >> >(devStates, sampleCount);
-	generate_rand_kernel << <blockCount, 32 >> >(devStates, sampleCount, devResults);
-	cudaMemcpy(result, devResults, sampleCount * sizeof(float), cudaMemcpyDeviceToHost);
-	cudaFree(devStates);
-	cudaFree(devResults);
-}
-*/
 
 void print_points(float_ptr list, int count) 
 {
@@ -214,8 +172,6 @@ void cudaKmeans(int pointCount, int centroidCount)
 	int_ptr centroidPointCount = reinterpret_cast<int_ptr>(calloc(centroidCount, sizeof(int)));
 	int_ptr devPointMap;
 	int_ptr devPointCount;
-	//cudaGetRandomPoints(pointCount, points);
-	//cudaGetRandomPoints(centroidCount, centroids);
 	auto start = system_clock::now();
 	GenerateRandomPoint(pointCount, points);
 	GenerateRandomPoint(centroidCount, centroids);
